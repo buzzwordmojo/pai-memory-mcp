@@ -1,0 +1,11 @@
+node_modules/
+.env.local
+.convex/
+dist/
+convex/_generated/
+MEMORY/
+.agents/
+.claude/
+AGENTS.md
+CLAUDE.md
+skills-lock.json

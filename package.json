@@ -1,0 +1,26 @@
+{
+  "name": "pai-memory-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote MCP memory server for PAI — portable, cross-machine AI memory with semantic vector search",
+  "type": "module",
+  "scripts": {
+    "dev": "npx convex dev",
+    "deploy": "npx convex deploy",
+    "test": "npx tsx --test tests/chunker.test.ts",
+    "test:integration": "npx tsx --test tests/mcp-integration.test.ts",
+    "test:all": "npx tsx --test tests/*.test.ts",
+    "setup": "npx tsx scripts/setup.ts",
+    "sync": "npx tsx scripts/sync.ts",
+    "import-legacy": "npx tsx scripts/import-legacy.ts"
+  },
+  "dependencies": {
+    "convex": "^1.21.0",
+    "@xenova/transformers": "^2.17.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,289 @@
+#!/usr/bin/env npx tsx
+/**
+ * Sync session transcripts to PAI Memory MCP (Convex).
+ *
+ * Usage:
+ *   npx tsx scripts/sync.ts --all           # Backfill all sessions
+ *   npx tsx scripts/sync.ts --since 7d      # Last 7 days
+ *   npx tsx scripts/sync.ts --session <uuid> # Specific session
+ */
+
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../convex/_generated/api";
+import { embed, embedBatch } from "../src/embed";
+import { chunkSession, RawMessage } from "../src/chunker";
+import { loadConfig, isProjectExcluded, redactContent, type PaiMemoryConfig } from "../src/config";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
+
+const CLAUDE_DIR = path.join(os.homedir(), ".claude");
+const PROJECTS_DIR = path.join(CLAUDE_DIR, "projects");
+
+function getConvexClient(): ConvexHttpClient {
+  const url = process.env.CONVEX_URL;
+  if (!url) {
+    console.error("Error: CONVEX_URL environment variable not set");
+    console.error("Set it to your Convex deployment URL (e.g., https://your-project.convex.cloud)");
+    process.exit(1);
+  }
+  return new ConvexHttpClient(url);
+}
+
+function getAuthToken(): string {
+  const token = process.env.MEMORY_AUTH_TOKEN;
+  if (!token) {
+    console.error("Error: MEMORY_AUTH_TOKEN environment variable not set");
+    process.exit(1);
+  }
+  return token;
+}
+
+interface SessionInfo {
+  id: string;
+  projectPath: string;
+  timestamp: number;
+  jsonlPath: string;
+}
+
+function findSessions(since?: number): SessionInfo[] {
+  const sessions: SessionInfo[] = [];
+
+  if (!fs.existsSync(PROJECTS_DIR)) {
+    console.error(`No projects directory found at ${PROJECTS_DIR}`);
+    return sessions;
+  }
+
+  // Walk project directories
+  for (const projectDir of fs.readdirSync(PROJECTS_DIR)) {
+    const projectPath = path.join(PROJECTS_DIR, projectDir);
+    if (!fs.statSync(projectPath).isDirectory()) continue;
+
+    // Look for session directories inside each project
+    for (const entry of fs.readdirSync(projectPath)) {
+      const entryPath = path.join(projectPath, entry);
+      if (!fs.statSync(entryPath).isDirectory()) continue;
+
+      // Check if this looks like a session UUID directory
+      if (!/^[0-9a-f-]{36}$/.test(entry)) continue;
+
+      // Look for JSONL transcript files
+      const jsonlFiles = fs.readdirSync(entryPath).filter((f) => f.endsWith(".jsonl"));
+      if (jsonlFiles.length === 0) continue;
+
+      const jsonlPath = path.join(entryPath, jsonlFiles[0]);
+      const stat = fs.statSync(jsonlPath);
+
+      if (since && stat.mtimeMs < since) continue;
+
+      sessions.push({
+        id: entry,
+        projectPath: projectDir,
+        timestamp: stat.mtimeMs,
+        jsonlPath,
+      });
+    }
+  }
+
+  return sessions.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function parseJsonl(filepath: string): RawMessage[] {
+  const content = fs.readFileSync(filepath, "utf-8");
+  const messages: RawMessage[] = [];
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      messages.push(JSON.parse(trimmed));
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return messages;
+}
+
+function extractProjectName(projectPath: string): string {
+  // Project dir names are encoded paths like "-home-bob-projects-myproject"
+  // Extract the last meaningful segment
+  const parts = projectPath.split("-").filter(Boolean);
+  return parts[parts.length - 1] || projectPath;
+}
+
+async function syncSession(
+  client: ConvexHttpClient,
+  session: SessionInfo,
+  config: PaiMemoryConfig
+): Promise<{ chunksIngested: number; skipped: boolean; reason?: string }> {
+  const project = extractProjectName(session.projectPath);
+
+  // Check project exclusion
+  if (isProjectExcluded(project, config)) {
+    return { chunksIngested: 0, skipped: true, reason: "excluded project" };
+  }
+
+  // Check if already ingested
+  const exists = await client.query(api.chunks.sessionExists, {
+    sessionId: session.id,
+  });
+  if (exists) {
+    return { chunksIngested: 0, skipped: true };
+  }
+
+  // Parse and chunk
+  const messages = parseJsonl(session.jsonlPath);
+  if (messages.length === 0) {
+    return { chunksIngested: 0, skipped: true };
+  }
+
+  const rawChunks = chunkSession(messages, session.timestamp);
+  if (rawChunks.length === 0) {
+    return { chunksIngested: 0, skipped: true };
+  }
+
+  // Redact sensitive content
+  const chunks = rawChunks.map((chunk) => {
+    const { content, redacted } = redactContent(chunk.content, config);
+    return redacted ? { ...chunk, content } : chunk;
+  });
+
+  // Generate embeddings for signal chunks
+  const signalChunks = chunks.filter((c) => c.isSignal);
+  const signalTexts = signalChunks.map((c) => c.content);
+
+  let embeddings: number[][] = [];
+  if (signalTexts.length > 0) {
+    // Batch embed in groups of 32
+    const EMBED_BATCH = 32;
+    for (let i = 0; i < signalTexts.length; i += EMBED_BATCH) {
+      const batch = signalTexts.slice(i, i + EMBED_BATCH);
+      const batchEmbeddings = await embedBatch(batch);
+      embeddings.push(...batchEmbeddings);
+    }
+  }
+
+  // Attach embeddings to signal chunks
+  let embIdx = 0;
+  const chunksWithEmbeddings = chunks.map((chunk) => {
+    if (chunk.isSignal && embIdx < embeddings.length) {
+      return { ...chunk, embedding: embeddings[embIdx++] };
+    }
+    return chunk;
+  });
+
+  // Ingest via MCP endpoint (using direct Convex mutation for efficiency)
+  const project = extractProjectName(session.projectPath);
+  const BATCH_SIZE = 50;
+
+  for (let i = 0; i < chunksWithEmbeddings.length; i += BATCH_SIZE) {
+    const batch = chunksWithEmbeddings.slice(i, i + BATCH_SIZE).map((c) => ({
+      sessionId: session.id,
+      project,
+      sequence: c.sequence,
+      role: c.role,
+      content: c.content,
+      chunkType: c.chunkType,
+      isSignal: c.isSignal,
+      tokensApprox: c.tokensApprox,
+      embedding: c.isSignal ? c.embedding : undefined,
+      metadata: c.metadata,
+      createdAt: c.createdAt,
+    }));
+
+    await client.mutation(api.chunks.insertBatch, { chunks: batch });
+  }
+
+  return { chunksIngested: chunksWithEmbeddings.length, skipped: false };
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const client = getConvexClient();
+  const config = loadConfig();
+
+  if (config.excludeProjects.length > 0) {
+    console.log(`Excluding projects: ${config.excludeProjects.join(", ")}`);
+  }
+  if (config.excludePatterns.length > 0) {
+    console.log(`Redacting ${config.excludePatterns.length} secret patterns`);
+  }
+
+  let sessions: SessionInfo[];
+
+  if (args.includes("--all")) {
+    console.log("Finding all sessions...");
+    sessions = findSessions();
+  } else if (args.includes("--since")) {
+    const sinceArg = args[args.indexOf("--since") + 1];
+    const match = sinceArg?.match(/^(\d+)([dhm])$/);
+    if (!match) {
+      console.error("Invalid --since format. Use: 7d, 24h, 30m");
+      process.exit(1);
+    }
+    const [, num, unit] = match;
+    const ms =
+      unit === "d"
+        ? parseInt(num) * 86400000
+        : unit === "h"
+          ? parseInt(num) * 3600000
+          : parseInt(num) * 60000;
+    const since = Date.now() - ms;
+    console.log(`Finding sessions since ${new Date(since).toISOString()}...`);
+    sessions = findSessions(since);
+  } else if (args.includes("--session")) {
+    const sessionId = args[args.indexOf("--session") + 1];
+    if (!sessionId) {
+      console.error("Provide a session UUID after --session");
+      process.exit(1);
+    }
+    // Find the specific session
+    const all = findSessions();
+    sessions = all.filter((s) => s.id === sessionId);
+    if (sessions.length === 0) {
+      console.error(`Session not found: ${sessionId}`);
+      process.exit(1);
+    }
+  } else {
+    console.log("Usage:");
+    console.log("  npx tsx scripts/sync.ts --all           # Backfill all sessions");
+    console.log("  npx tsx scripts/sync.ts --since 7d      # Last 7 days");
+    console.log("  npx tsx scripts/sync.ts --session <uuid> # Specific session");
+    process.exit(0);
+  }
+
+  console.log(`Found ${sessions.length} sessions to sync.`);
+
+  let synced = 0;
+  let skipped = 0;
+  let totalChunks = 0;
+
+  for (const session of sessions) {
+    const project = extractProjectName(session.projectPath);
+    process.stdout.write(
+      `  ${session.id} (${project})... `
+    );
+
+    try {
+      const result = await syncSession(client, session, config);
+      if (result.skipped) {
+        console.log(`skipped (${result.reason ?? "already ingested or empty"})`);
+        skipped++;
+      } else {
+        console.log(`${result.chunksIngested} chunks ingested`);
+        synced++;
+        totalChunks += result.chunksIngested;
+      }
+    } catch (err: any) {
+      console.log(`ERROR: ${err.message}`);
+    }
+  }
+
+  console.log(`\nDone: ${synced} synced, ${skipped} skipped, ${totalChunks} total chunks`);
+}
+
+main().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});

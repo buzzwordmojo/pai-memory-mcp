@@ -186,6 +186,7 @@ Your personal config file — lives in your home directory, not the repo. The se
 
 | Field | Description |
 |-------|-------------|
+| `includeProjects` | If set, **only** these projects are synced. Everything else is ignored. Useful for machines dedicated to specific projects |
 | `excludeProjects` | Projects whose sessions are never synced to Convex |
 | `excludePatterns` | Regex patterns for secrets — matched content is replaced with `[REDACTED]` before upload |
 | `protectedProjects` | Projects whose chunks are never pruned |

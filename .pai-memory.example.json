@@ -1,4 +1,5 @@
 {
+  "includeProjects": [],
   "excludeProjects": [],
   "excludePatterns": [
     "sk-[a-zA-Z0-9_-]{20,}",

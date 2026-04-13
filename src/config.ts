@@ -3,6 +3,7 @@ import * as path from "path";
 import * as os from "os";
 
 export interface PaiMemoryConfig {
+  includeProjects: string[];
   excludeProjects: string[];
   excludePatterns: string[];
   protectedProjects: string[];
@@ -11,6 +12,7 @@ export interface PaiMemoryConfig {
 }
 
 const DEFAULT_CONFIG: PaiMemoryConfig = {
+  includeProjects: [],
   excludeProjects: [],
   excludePatterns: [],
   protectedProjects: [],
@@ -68,7 +70,14 @@ export function isProjectExcluded(
   project: string | undefined,
   config: PaiMemoryConfig
 ): boolean {
-  if (!project) return false;
+  if (!project) {
+    // No project — excluded if includeProjects is set (only named projects allowed)
+    return config.includeProjects.length > 0;
+  }
+  // If includeProjects is set, only those are allowed
+  if (config.includeProjects.length > 0) {
+    return !config.includeProjects.includes(project);
+  }
   return config.excludeProjects.includes(project);
 }
 

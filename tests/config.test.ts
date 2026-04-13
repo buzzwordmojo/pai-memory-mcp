@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { isProjectExcluded, redactContent, type PaiMemoryConfig } from "../src/config";
 
 const config: PaiMemoryConfig = {
+  includeProjects: [],
   excludeProjects: ["secret-client", "classified"],
   excludePatterns: [
     "sk-[a-zA-Z0-9_-]{20,}",
@@ -10,6 +11,8 @@ const config: PaiMemoryConfig = {
     "ghp_[a-zA-Z0-9]{36}",
   ],
   protectedProjects: ["important-project"],
+  orgPrefixes: [],
+  projectNameOverrides: {},
 };
 
 describe("isProjectExcluded", () => {
@@ -25,6 +28,17 @@ describe("isProjectExcluded", () => {
 
   it("returns false for undefined project", () => {
     assert.equal(isProjectExcluded(undefined, config), false);
+  });
+
+  it("excludes unlisted projects when includeProjects is set", () => {
+    const includeConfig: PaiMemoryConfig = {
+      ...config,
+      includeProjects: ["scrapcycle", "scrapcycle-routing"],
+    };
+    assert.equal(isProjectExcluded("scrapcycle", includeConfig), false);
+    assert.equal(isProjectExcluded("scrapcycle-routing", includeConfig), false);
+    assert.equal(isProjectExcluded("matchbook", includeConfig), true);
+    assert.equal(isProjectExcluded(undefined, includeConfig), true);
   });
 });
 
@@ -68,9 +82,12 @@ describe("redactContent", () => {
 
   it("handles empty patterns gracefully", () => {
     const emptyConfig: PaiMemoryConfig = {
+      includeProjects: [],
       excludeProjects: [],
       excludePatterns: [],
       protectedProjects: [],
+      orgPrefixes: [],
+      projectNameOverrides: {},
     };
     const text = "sk-abcdefghij1234567890abcd";
     const { content, redacted } = redactContent(text, emptyConfig);

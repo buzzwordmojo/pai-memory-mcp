@@ -117,19 +117,28 @@ http.route({
   }),
 });
 
-// Dashboard API — stats endpoint
+// Dashboard API — chunk stats (paginated, separate endpoint)
 http.route({
-  path: "/api/stats",
+  path: "/api/stats/chunks",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    if (!(await validateAuth(request))) {
-      return unauthorizedResponse();
-    }
-
+    if (!(await validateAuth(request))) return unauthorizedResponse();
     const stats = await ctx.runQuery(api.prune.getStorageStats, {});
     return new Response(JSON.stringify(stats), {
-      status: 200,
-      headers: corsHeaders("application/json"),
+      status: 200, headers: corsHeaders("application/json"),
+    });
+  }),
+});
+
+// Dashboard API — memory + graph stats (small tables, .collect())
+http.route({
+  path: "/api/stats/other",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    if (!(await validateAuth(request))) return unauthorizedResponse();
+    const stats = await ctx.runQuery(api.prune.getOtherStats, {});
+    return new Response(JSON.stringify(stats), {
+      status: 200, headers: corsHeaders("application/json"),
     });
   }),
 });

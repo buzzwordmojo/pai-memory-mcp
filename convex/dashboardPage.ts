@@ -236,10 +236,20 @@ function populateFilters() {
 
 async function loadStats() {
   try {
-    const res = await fetch(BASE + '/api/stats', {
-      headers: { 'Authorization': 'Bearer ' + (new URLSearchParams(window.location.search).get('token') || '') }
-    });
-    statsData = await res.json();
+    const authHeader = 'Bearer ' + (new URLSearchParams(window.location.search).get('token') || '');
+    const [chunkRes, otherRes] = await Promise.all([
+      fetch(BASE + '/api/stats/chunks', { headers: { 'Authorization': authHeader } }),
+      fetch(BASE + '/api/stats/other', { headers: { 'Authorization': authHeader } }),
+    ]);
+    const chunkStats = await chunkRes.json();
+    const otherStats = await otherRes.json();
+    const allProjects = [...new Set([...(chunkStats.projects || []), ...(otherStats.projects || [])])].sort();
+    statsData = {
+      chunks: chunkStats.chunks,
+      memories: otherStats.memories,
+      graph: otherStats.graph,
+      projects: allProjects,
+    };
     renderStats();
   } catch {}
 }

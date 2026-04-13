@@ -437,7 +437,15 @@ async function toolMemoryConfig(
 async function toolMemoryStats(
   ctx: ActionCtx
 ): Promise<McpToolResult> {
-  const stats = await ctx.runQuery(api.prune.getStorageStats, {});
+  const chunkStats = await ctx.runQuery(api.prune.getStorageStats, {}) as any;
+  const otherStats = await ctx.runQuery(api.prune.getOtherStats, {}) as any;
+  const allProjects = new Set([...chunkStats.projects, ...otherStats.projects]);
+  const stats = {
+    chunks: chunkStats.chunks,
+    memories: otherStats.memories,
+    graph: otherStats.graph,
+    projects: [...allProjects].sort(),
+  };
   return {
     content: [{ type: "text", text: JSON.stringify(stats, null, 2) }],
   };

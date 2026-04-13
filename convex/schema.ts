@@ -61,4 +61,17 @@ export default defineSchema({
     .index("by_subject", ["subject", "predicate"])
     .index("by_object", ["object", "predicate"])
     .index("by_predicate", ["predicate"]),
+
+  stats: defineTable({
+    chunks: v.object({
+      total: v.number(),
+      signal: v.number(),
+      nonSignal: v.number(),
+      olderThan30d: v.number(),
+      olderThan90d: v.number(),
+      prunableNow: v.number(),
+    }),
+    projects: v.array(v.string()),
+    updatedAt: v.number(),
+  }),
 });

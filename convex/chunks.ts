@@ -40,9 +40,44 @@ export const insertBatch = mutation({
   },
   handler: async (ctx, args) => {
     const ids = [];
+    const projects = new Set<string>();
+    let signalCount = 0;
+
     for (const chunk of args.chunks) {
       ids.push(await ctx.db.insert("chunks", chunk));
+      if (chunk.isSignal) signalCount++;
+      if (chunk.project) projects.add(chunk.project);
     }
+
+    // Update stats counter
+    const existing = await ctx.db.query("stats").first();
+    if (existing) {
+      const allProjects = new Set([...existing.projects, ...projects]);
+      await ctx.db.patch(existing._id, {
+        chunks: {
+          ...existing.chunks,
+          total: existing.chunks.total + args.chunks.length,
+          signal: existing.chunks.signal + signalCount,
+          nonSignal: existing.chunks.nonSignal + (args.chunks.length - signalCount),
+        },
+        projects: [...allProjects],
+        updatedAt: Date.now(),
+      });
+    } else {
+      await ctx.db.insert("stats", {
+        chunks: {
+          total: args.chunks.length,
+          signal: signalCount,
+          nonSignal: args.chunks.length - signalCount,
+          olderThan30d: 0,
+          olderThan90d: 0,
+          prunableNow: 0,
+        },
+        projects: [...projects],
+        updatedAt: Date.now(),
+      });
+    }
+
     return ids;
   },
 });

@@ -40,8 +40,18 @@ export function extractProjectName(
   projectPath: string,
   config: PaiMemoryConfig
 ): string {
+  // Check overrides first — matches against raw input before any stripping
+  if (config.projectNameOverrides[projectPath]) {
+    return config.projectNameOverrides[projectPath];
+  }
+
   // Strip worktree suffixes
   let cleaned = projectPath.replace(/--claude-worktrees-agent-[a-f0-9]+$/, "");
+
+  // Check overrides again after worktree stripping
+  if (config.projectNameOverrides[cleaned]) {
+    return config.projectNameOverrides[cleaned];
+  }
 
   // Remove home/user/projects prefix (e.g., -home-bob-projects-org-project)
   const projectsIdx = cleaned.indexOf("-projects-");

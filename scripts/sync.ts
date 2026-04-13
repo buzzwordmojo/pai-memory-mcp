@@ -99,18 +99,64 @@ function findSessions(since?: number): SessionInfo[] {
   return sessions.sort((a, b) => a.timestamp - b.timestamp);
 }
 
+// Non-message JSONL types to skip entirely
+const SKIP_TYPES = new Set([
+  "queue-operation",
+  "file-history-snapshot",
+  "progress",
+  "last-prompt",
+]);
+
 function parseJsonl(filepath: string): RawMessage[] {
-  const content = fs.readFileSync(filepath, "utf-8");
+  const raw = fs.readFileSync(filepath, "utf-8");
   const messages: RawMessage[] = [];
 
-  for (const line of content.split("\n")) {
+  for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    let entry: any;
     try {
-      messages.push(JSON.parse(trimmed));
+      entry = JSON.parse(trimmed);
     } catch {
-      // Skip malformed lines
+      continue;
     }
+
+    // Skip non-message types
+    if (SKIP_TYPES.has(entry.type)) continue;
+    if (entry.isMeta) continue;
+
+    // Extract content — may be at entry.message.content or entry.content
+    let content: string | undefined;
+    if (entry.message?.content) {
+      const mc = entry.message.content;
+      if (typeof mc === "string") {
+        content = mc;
+      } else if (Array.isArray(mc)) {
+        // Array of content blocks — extract text parts
+        content = mc
+          .filter((b: any) => b.type === "text" && b.text)
+          .map((b: any) => b.text)
+          .join("\n\n");
+      }
+    } else if (typeof entry.content === "string") {
+      content = entry.content;
+    }
+
+    if (!content?.trim()) continue;
+
+    // Normalize type names to what the chunker expects
+    let type = entry.type;
+    if (type === "user") type = "human";
+    // "assistant" stays as-is
+    // "system" stays as-is
+    // "tool_use" / "tool_result" stay as-is
+
+    messages.push({
+      type,
+      content,
+      tool_name: entry.message?.tool_name ?? entry.tool_name,
+      is_error: entry.is_error,
+    });
   }
 
   return messages;

@@ -78,7 +78,20 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 3: Add MCP server to settings.json
+  // Step 3: Create ~/.pai-memory.json if it doesn't exist
+  const paiMemoryConfigPath = join(os.homedir(), ".pai-memory.json");
+  if (!existsSync(paiMemoryConfigPath)) {
+    const examplePath = join(process.cwd(), ".pai-memory.example.json");
+    if (existsSync(examplePath)) {
+      writeFileSync(paiMemoryConfigPath, readFileSync(examplePath, "utf-8"));
+      console.log("Created ~/.pai-memory.json from example config.");
+      console.log("  Edit this file to set orgPrefixes, projectNameOverrides, and excludePatterns.\n");
+    }
+  } else {
+    console.log("~/.pai-memory.json already exists — skipping.\n");
+  }
+
+  // Step 4: Add MCP server to settings.json
   console.log("Configuring Claude Code settings...");
   const settings = loadSettings();
 

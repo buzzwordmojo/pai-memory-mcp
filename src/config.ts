@@ -6,16 +6,19 @@ export interface PaiMemoryConfig {
   excludeProjects: string[];
   excludePatterns: string[];
   protectedProjects: string[];
+  orgPrefixes: string[];
+  projectNameOverrides: Record<string, string>;
 }
 
 const DEFAULT_CONFIG: PaiMemoryConfig = {
   excludeProjects: [],
   excludePatterns: [],
   protectedProjects: [],
+  orgPrefixes: [],
+  projectNameOverrides: {},
 };
 
 export function loadConfig(): PaiMemoryConfig {
-  // Check project-local config first, then ~/.pai-memory.json
   const candidates = [
     path.join(process.cwd(), ".pai-memory.json"),
     path.join(os.homedir(), ".pai-memory.json"),
@@ -29,6 +32,36 @@ export function loadConfig(): PaiMemoryConfig {
   }
 
   return DEFAULT_CONFIG;
+}
+
+export function extractProjectName(
+  projectPath: string,
+  config: PaiMemoryConfig
+): string {
+  // Strip worktree suffixes
+  let cleaned = projectPath.replace(/--claude-worktrees-agent-[a-f0-9]+$/, "");
+
+  // Remove home/user/projects prefix
+  const projectsIdx = cleaned.indexOf("-projects-");
+  if (projectsIdx !== -1) {
+    cleaned = cleaned.slice(projectsIdx + "-projects-".length);
+  } else {
+    return projectPath;
+  }
+
+  // If what's left is just an org name, return it as-is
+  if (config.orgPrefixes.includes(cleaned)) return cleaned;
+
+  // Strip org prefix to get the project name
+  for (const org of config.orgPrefixes) {
+    if (cleaned.startsWith(org + "-")) {
+      cleaned = cleaned.slice(org.length + 1);
+      break;
+    }
+  }
+
+  // Apply overrides
+  return config.projectNameOverrides[cleaned] ?? cleaned ?? projectPath;
 }
 
 export function isProjectExcluded(

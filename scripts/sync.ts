@@ -12,7 +12,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { embed, embedBatch } from "../src/embed";
 import { chunkSession, RawMessage } from "../src/chunker";
-import { loadConfig, isProjectExcluded, redactContent, type PaiMemoryConfig } from "../src/config";
+import { loadConfig, isProjectExcluded, redactContent, extractProjectName, type PaiMemoryConfig } from "../src/config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -59,29 +59,40 @@ function findSessions(since?: number): SessionInfo[] {
     const projectPath = path.join(PROJECTS_DIR, projectDir);
     if (!fs.statSync(projectPath).isDirectory()) continue;
 
-    // Look for session directories inside each project
     for (const entry of fs.readdirSync(projectPath)) {
       const entryPath = path.join(projectPath, entry);
-      if (!fs.statSync(entryPath).isDirectory()) continue;
 
-      // Check if this looks like a session UUID directory
-      if (!/^[0-9a-f-]{36}$/.test(entry)) continue;
+      // Pattern 1: <uuid>.jsonl directly in project dir
+      if (entry.endsWith(".jsonl") && /^[0-9a-f-]{36}\.jsonl$/.test(entry)) {
+        const sessionId = entry.replace(".jsonl", "");
+        const stat = fs.statSync(entryPath);
+        if (since && stat.mtimeMs < since) continue;
 
-      // Look for JSONL transcript files
-      const jsonlFiles = fs.readdirSync(entryPath).filter((f) => f.endsWith(".jsonl"));
-      if (jsonlFiles.length === 0) continue;
+        sessions.push({
+          id: sessionId,
+          projectPath: projectDir,
+          timestamp: stat.mtimeMs,
+          jsonlPath: entryPath,
+        });
+        continue;
+      }
 
-      const jsonlPath = path.join(entryPath, jsonlFiles[0]);
-      const stat = fs.statSync(jsonlPath);
+      // Pattern 2: <uuid>/ directory containing JSONL files
+      if (fs.statSync(entryPath).isDirectory() && /^[0-9a-f-]{36}$/.test(entry)) {
+        const jsonlFiles = fs.readdirSync(entryPath).filter((f) => f.endsWith(".jsonl"));
+        if (jsonlFiles.length === 0) continue;
 
-      if (since && stat.mtimeMs < since) continue;
+        const jsonlPath = path.join(entryPath, jsonlFiles[0]);
+        const stat = fs.statSync(jsonlPath);
+        if (since && stat.mtimeMs < since) continue;
 
-      sessions.push({
-        id: entry,
-        projectPath: projectDir,
-        timestamp: stat.mtimeMs,
-        jsonlPath,
-      });
+        sessions.push({
+          id: entry,
+          projectPath: projectDir,
+          timestamp: stat.mtimeMs,
+          jsonlPath,
+        });
+      }
     }
   }
 
@@ -105,19 +116,13 @@ function parseJsonl(filepath: string): RawMessage[] {
   return messages;
 }
 
-function extractProjectName(projectPath: string): string {
-  // Project dir names are encoded paths like "-home-bob-projects-myproject"
-  // Extract the last meaningful segment
-  const parts = projectPath.split("-").filter(Boolean);
-  return parts[parts.length - 1] || projectPath;
-}
 
 async function syncSession(
   client: ConvexHttpClient,
   session: SessionInfo,
   config: PaiMemoryConfig
 ): Promise<{ chunksIngested: number; skipped: boolean; reason?: string }> {
-  const project = extractProjectName(session.projectPath);
+  const project = extractProjectName(session.projectPath, config);
 
   // Check project exclusion
   if (isProjectExcluded(project, config)) {
@@ -173,8 +178,6 @@ async function syncSession(
     return chunk;
   });
 
-  // Ingest via MCP endpoint (using direct Convex mutation for efficiency)
-  const project = extractProjectName(session.projectPath);
   const BATCH_SIZE = 50;
 
   for (let i = 0; i < chunksWithEmbeddings.length; i += BATCH_SIZE) {
@@ -260,7 +263,7 @@ async function main() {
   let totalChunks = 0;
 
   for (const session of sessions) {
-    const project = extractProjectName(session.projectPath);
+    const project = extractProjectName(session.projectPath, config);
     process.stdout.write(
       `  ${session.id} (${project})... `
     );

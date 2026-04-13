@@ -168,15 +168,19 @@ Deduplication prevents the same knowledge from piling up. When a memory is added
 
 ## Configuration
 
-### `.pai-memory.json`
+### `~/.pai-memory.json`
 
-Controls what gets synced to the cloud. Place in the project root or `~/`:
+Your personal config file — lives in your home directory, not the repo. The setup script creates it from `.pai-memory.example.json`. Copy it to any other machine you use.
 
 ```json
 {
   "excludeProjects": ["secret-client-work"],
   "excludePatterns": ["sk-[a-zA-Z0-9_-]{20,}", "AKIA[A-Z0-9]{16}"],
-  "protectedProjects": ["important-project"]
+  "protectedProjects": ["important-project"],
+  "orgPrefixes": ["mycompany"],
+  "projectNameOverrides": {
+    "some-long-encoded-name": "short-name"
+  }
 }
 ```
 
@@ -185,6 +189,8 @@ Controls what gets synced to the cloud. Place in the project root or `~/`:
 | `excludeProjects` | Projects whose sessions are never synced to Convex |
 | `excludePatterns` | Regex patterns for secrets — matched content is replaced with `[REDACTED]` before upload |
 | `protectedProjects` | Projects whose chunks are never pruned |
+| `orgPrefixes` | Organization directory names to strip from project paths (e.g., `["mycompany"]` turns `-home-user-projects-mycompany-myapp` into `myapp`) |
+| `projectNameOverrides` | Explicit name mappings for projects whose auto-extracted names aren't right |
 
 ### Server Settings
 

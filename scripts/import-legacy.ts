@@ -11,7 +11,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
 import { embed } from "../src/embed";
-import { loadConfig, isProjectExcluded, redactContent } from "../src/config";
+import { loadConfig, isProjectExcluded, redactContent, extractProjectName, type PaiMemoryConfig } from "../src/config";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -123,12 +123,10 @@ function findAllMemoryDirs(): string[] {
   return dirs;
 }
 
-function extractProjectFromDir(dir: string): string | undefined {
+function extractProjectFromDir(dir: string, config: PaiMemoryConfig): string | undefined {
   const match = dir.match(/projects\/([^/]+)\/memory/);
   if (!match) return undefined;
-  const encoded = match[1];
-  const parts = encoded.split("-").filter(Boolean);
-  return parts[parts.length - 1] || undefined;
+  return extractProjectName(match[1], config);
 }
 
 async function main() {
@@ -153,7 +151,7 @@ async function main() {
     const dirs = findAllMemoryDirs();
     console.log(`Found ${dirs.length} memory directories:`);
     for (const dir of dirs) {
-      const project = extractProjectFromDir(dir);
+      const project = extractProjectFromDir(dir, config);
       const files = findMemoryFiles(dir);
       console.log(`  ${dir} (${files.length} files${project ? `, project: ${project}` : ""})`);
       allFiles.push(...files.map((f) => ({ filepath: f, project })));
@@ -165,7 +163,7 @@ async function main() {
       process.exit(1);
     }
     const files = findMemoryFiles(resolvedDir);
-    const project = extractProjectFromDir(resolvedDir);
+    const project = extractProjectFromDir(resolvedDir, config);
     allFiles = files.map((f) => ({ filepath: f, project }));
   }
 

@@ -22,8 +22,8 @@ const DEFAULT_CONFIG: PaiMemoryConfig = {
 
 export function loadConfig(): PaiMemoryConfig {
   const candidates = [
-    path.join(process.cwd(), ".pai-memory.json"),
     path.join(os.homedir(), ".pai-memory.json"),
+    path.join(process.cwd(), ".pai-memory.json"),
   ];
 
   for (const filepath of candidates) {
@@ -43,12 +43,19 @@ export function extractProjectName(
   // Strip worktree suffixes
   let cleaned = projectPath.replace(/--claude-worktrees-agent-[a-f0-9]+$/, "");
 
-  // Remove home/user/projects prefix
+  // Remove home/user/projects prefix (e.g., -home-bob-projects-org-project)
   const projectsIdx = cleaned.indexOf("-projects-");
   if (projectsIdx !== -1) {
     cleaned = cleaned.slice(projectsIdx + "-projects-".length);
   } else {
-    return projectPath;
+    // No -projects- segment — strip -home-user- prefix directly
+    // Handles paths like -home-ubuntu-routing (project at ~/routing)
+    const match = cleaned.match(/^-home-[^-]+-(.+)$/);
+    if (match) {
+      cleaned = match[1];
+    } else {
+      return projectPath;
+    }
   }
 
   // If what's left is just an org name, return it as-is

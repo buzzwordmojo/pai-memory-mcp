@@ -1,45 +1,30 @@
+import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 
-const PROJECT_RENAMES: Record<string, string> = {
-  "matchbook": "matchbook",
-  "claudopilot": "claudopilot",
-  "mcp": "pai-memory-mcp",
-  "reelms": "reelms",
-  "cutlist": "cutlist",
-  "platform": "career-track",
-  "routing": "scrapcycle-routing",
-  "io": "hermen",
-  "server": "claudopilot-mcp-server",
-  "org": "www-scrapcycle-org",
-  "Dev": "lega-dev",
-  "a036fc79": "career-track",
-  "a1baf0f5": "career-track",
-  "a6e5f6ce": "career-track",
-  "projects": "buzzwordmojo",
-};
-
-export const fixProjectNames = mutation({
-  handler: async (ctx) => {
+export const renameProject = mutation({
+  args: {
+    from: v.string(),
+    to: v.string(),
+  },
+  handler: async (ctx, args) => {
     let updated = 0;
 
-    const allChunks = await ctx.db.query("chunks").collect();
-    for (const chunk of allChunks) {
-      const newName = chunk.project ? PROJECT_RENAMES[chunk.project] : undefined;
-      if (newName && newName !== chunk.project) {
-        await ctx.db.patch(chunk._id, { project: newName });
-        updated++;
-      }
+    const chunks = await ctx.db.query("chunks")
+      .withIndex("by_project", (q) => q.eq("project", args.from))
+      .collect();
+    for (const chunk of chunks) {
+      await ctx.db.patch(chunk._id, { project: args.to });
+      updated++;
     }
 
-    const allMemories = await ctx.db.query("memories").collect();
-    for (const memory of allMemories) {
-      const newName = memory.project ? PROJECT_RENAMES[memory.project] : undefined;
-      if (newName && newName !== memory.project) {
-        await ctx.db.patch(memory._id, { project: newName });
-        updated++;
-      }
+    const memories = await ctx.db.query("memories")
+      .withIndex("by_project", (q) => q.eq("project", args.from))
+      .collect();
+    for (const memory of memories) {
+      await ctx.db.patch(memory._id, { project: args.to });
+      updated++;
     }
 
-    return { updated };
+    return { updated, from: args.from, to: args.to };
   },
 });

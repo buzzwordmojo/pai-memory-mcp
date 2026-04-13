@@ -5,7 +5,6 @@ export const deleteTestData = mutation({
     let deletedMemories = 0;
     let deletedChunks = 0;
 
-    // Delete test memories — those with test-related titles or tags
     const allMemories = await ctx.db.query("memories").collect();
     for (const m of allMemories) {
       const isTest =
@@ -24,7 +23,6 @@ export const deleteTestData = mutation({
       }
     }
 
-    // Delete test chunks — those with test session IDs
     const allChunks = await ctx.db.query("chunks").collect();
     for (const c of allChunks) {
       if (c.sessionId.startsWith("test-session-")) {
@@ -34,5 +32,15 @@ export const deleteTestData = mutation({
     }
 
     return { deletedMemories, deletedChunks };
+  },
+});
+
+export const deleteAllChunks = mutation({
+  handler: async (ctx) => {
+    const batch = await ctx.db.query("chunks").take(500);
+    for (const c of batch) {
+      await ctx.db.delete(c._id);
+    }
+    return { deleted: batch.length, remaining: batch.length === 500 };
   },
 });

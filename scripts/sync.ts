@@ -302,14 +302,28 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`Found ${sessions.length} sessions to sync.`);
+  const total = sessions.length;
+  console.log(`Found ${total} sessions to sync.\n`);
 
   let synced = 0;
   let skipped = 0;
+  let errors = 0;
   let totalChunks = 0;
+  const startTime = Date.now();
 
-  for (const session of sessions) {
+  for (let i = 0; i < sessions.length; i++) {
+    const session = sessions[i];
     const project = extractProjectName(session.projectPath, config);
+
+    // Progress summary every 50 sessions
+    if (i > 0 && i % 50 === 0) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+      const rate = (synced / (parseFloat(elapsed) || 1)).toFixed(1);
+      console.log(
+        `\n  [${i}/${total}] ${synced} synced, ${skipped} skipped, ${totalChunks} chunks, ${elapsed}s elapsed (${rate} sessions/s)\n`
+      );
+    }
+
     process.stdout.write(
       `  ${session.id} (${project})... `
     );
@@ -326,10 +340,12 @@ async function main() {
       }
     } catch (err: any) {
       console.log(`ERROR: ${err.message}`);
+      errors++;
     }
   }
 
-  console.log(`\nDone: ${synced} synced, ${skipped} skipped, ${totalChunks} total chunks`);
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+  console.log(`\nDone: ${synced} synced, ${skipped} skipped, ${errors} errors, ${totalChunks} total chunks in ${elapsed}s`);
 }
 
 main().catch((err) => {

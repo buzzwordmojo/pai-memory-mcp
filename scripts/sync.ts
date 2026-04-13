@@ -166,7 +166,8 @@ function parseJsonl(filepath: string): RawMessage[] {
 async function syncSession(
   client: ConvexHttpClient,
   session: SessionInfo,
-  config: PaiMemoryConfig
+  config: PaiMemoryConfig,
+  force = false
 ): Promise<{ chunksIngested: number; skipped: boolean; reason?: string }> {
   const project = extractProjectName(session.projectPath, config);
 
@@ -175,12 +176,14 @@ async function syncSession(
     return { chunksIngested: 0, skipped: true, reason: "excluded project" };
   }
 
-  // Check if already ingested
-  const exists = await client.query(anyApi.chunks.sessionExists, {
-    sessionId: session.id,
-  });
-  if (exists) {
-    return { chunksIngested: 0, skipped: true };
+  // Check if already ingested (skip check if --force)
+  if (!force) {
+    const exists = await client.query(anyApi.chunks.sessionExists, {
+      sessionId: session.id,
+    });
+    if (exists) {
+      return { chunksIngested: 0, skipped: true };
+    }
   }
 
   // Parse and chunk
@@ -287,23 +290,27 @@ async function main() {
       console.error("Provide a session UUID after --session");
       process.exit(1);
     }
-    // Find the specific session
+    // Find the specific session (supports partial UUID match)
     const all = findSessions();
-    sessions = all.filter((s) => s.id === sessionId);
+    sessions = all.filter((s) => s.id === sessionId || s.id.startsWith(sessionId));
     if (sessions.length === 0) {
       console.error(`Session not found: ${sessionId}`);
       process.exit(1);
     }
   } else {
     console.log("Usage:");
-    console.log("  npx tsx scripts/sync.ts --all           # Backfill all sessions");
-    console.log("  npx tsx scripts/sync.ts --since 7d      # Last 7 days");
-    console.log("  npx tsx scripts/sync.ts --session <uuid> # Specific session");
+    console.log("  npx tsx scripts/sync.ts --all             # Backfill all sessions");
+    console.log("  npx tsx scripts/sync.ts --since 7d        # Last 7 days");
+    console.log("  npx tsx scripts/sync.ts --session <uuid>  # Specific session");
+    console.log("  npx tsx scripts/sync.ts --all --force     # Re-sync everything (ignores existing)");
+    console.log("");
+    console.log("  --force   Re-ingest sessions even if already synced");
     process.exit(0);
   }
 
+  const force = args.includes("--force");
   const total = sessions.length;
-  console.log(`Found ${total} sessions to sync.\n`);
+  console.log(`Found ${total} sessions to sync.${force ? " (--force: re-ingesting all)" : ""}\n`);
 
   let synced = 0;
   let skipped = 0;
@@ -329,7 +336,7 @@ async function main() {
     );
 
     try {
-      const result = await syncSession(client, session, config);
+      const result = await syncSession(client, session, config, force);
       if (result.skipped) {
         console.log(`skipped (${result.reason ?? "already ingested or empty"})`);
         skipped++;

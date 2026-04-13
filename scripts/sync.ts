@@ -9,7 +9,7 @@
  */
 
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../convex/_generated/api";
+import { anyApi } from "convex/server";
 import { embed, embedBatch } from "../src/embed";
 import { chunkSession, RawMessage } from "../src/chunker";
 import { loadConfig, isProjectExcluded, redactContent, extractProjectName, type PaiMemoryConfig } from "../src/config";
@@ -130,7 +130,7 @@ async function syncSession(
   }
 
   // Check if already ingested
-  const exists = await client.query(api.chunks.sessionExists, {
+  const exists = await client.query(anyApi.chunks.sessionExists, {
     sessionId: session.id,
   });
   if (exists) {
@@ -195,7 +195,7 @@ async function syncSession(
       createdAt: c.createdAt,
     }));
 
-    await client.mutation(api.chunks.insertBatch, { chunks: batch });
+    await client.mutation(anyApi.chunks.insertBatch, { chunks: batch });
   }
 
   return { chunksIngested: chunksWithEmbeddings.length, skipped: false };

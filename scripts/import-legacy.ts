@@ -9,7 +9,7 @@
  */
 
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../convex/_generated/api";
+import { anyApi } from "convex/server";
 import { embed } from "../src/embed";
 import { loadConfig, isProjectExcluded, redactContent, extractProjectName, type PaiMemoryConfig } from "../src/config";
 import * as fs from "fs";
@@ -196,7 +196,7 @@ async function main() {
 
       const embedding = await embed(safeContent);
 
-      await client.mutation(api.memories.insert, {
+      await client.mutation(anyApi.memories.insert, {
         type: memory.type,
         title: memory.name,
         content: safeContent,
